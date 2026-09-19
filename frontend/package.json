@@ -1,0 +1,24 @@
+{
+  "name": "expediente-frontend",
+  "private": true,
+  "version": "0.5.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-router-dom": "latest"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "jsdom": "^26.1.0",
+    "vitest": "latest"
+  }
+}

@@ -1,0 +1,26 @@
+Este es un CV de prueba para el sistema de preseleccion de candidatos.
+
+DATOS PERSONALES
+Nombre: Carlos Lopez
+Email: candidato@gmail.com
+
+HABILIDADES TECNICAS
+- Python (FastAPI, Django, Flask)
+- JavaScript (React, Node.js)
+- Bases de datos: PostgreSQL, MongoDB
+- Docker y Docker Compose
+- Git y GitHub
+- REST APIs y GraphQL
+
+EXPERIENCIA LABORAL
+Empresa ABC - Desarrollador Backend (2022-2024)
+- Desarrollo de APIs REST con FastAPI y Python
+- Implementacion de autenticacion JWT
+- Optimizacion de consultas PostgreSQL
+
+Empresa XYZ - Desarrollador Junior (2020-2022)
+- Desarrollo frontend con React
+- Integracion con APIs externas
+
+EDUCACION
+Universidad Nacional - Ingenieria en Sistemas (2016-2020)
