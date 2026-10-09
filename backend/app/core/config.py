@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     MAX_CV_SIZE_MB: int = 5
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
     CORS_ORIGIN_REGEX: str | None = None  # e.g. r"https://.*\.vercel\.app"
+    BLOB_READ_WRITE_TOKEN: str | None = None
     OPENAI_API_KEY: str | None = None
     OPENAI_MODEL: str = "gpt-4o-mini-2024-07-18"
     OPENAI_TIMEOUT_SECONDS: float = 60.0

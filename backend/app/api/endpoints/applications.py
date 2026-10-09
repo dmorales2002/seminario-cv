@@ -2,11 +2,10 @@
 Endpoint de postulación: valida y extrae CVs (PDF/DOCX), persiste el
 archivo original y registra la postulación para su posterior análisis.
 """
-import os
 import uuid
 from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -17,12 +16,12 @@ from app.models.application import Application, ApplicationStatus
 from app.models.user import UserRole
 from app.schemas.application import ApplicationOut, ApplicationWithCandidateOut, ApplicationStatusUpdate
 from app.services.extractor import extract_text
+from app.services import blob_storage
 from app.core.config import settings
 
 router = APIRouter()
 
 # ── Configuración ──────────────────────────────────────────────────────────────
-UPLOAD_DIR = str(settings.UPLOAD_DIR)
 MAX_FILE_SIZE_MB = settings.MAX_CV_SIZE_MB
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
@@ -124,18 +123,23 @@ async def apply_to_vacancy(
             detail="El documento no contiene texto seleccionable.",
         )
 
-    # 6. Guardar archivo en disco con nombre único
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    # 6. Subir archivo a Vercel Blob con nombre único
     file_uuid = str(uuid.uuid4())
     safe_filename = f"{file_uuid}.{file_type}"
-    file_path = os.path.join(UPLOAD_DIR, safe_filename)
-    with open(file_path, "wb") as f:
-        f.write(file_bytes)
+    try:
+        blob_url = await run_in_threadpool(
+            blob_storage.upload, safe_filename, file_bytes, cv_file.content_type
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo almacenar el archivo. Intenta de nuevo.",
+        ) from exc
 
     # 7. Crear registro en `resumes` con el texto ya validado
     resume = Resume(
         candidate_id=current_user.id,
-        file_path=file_path,
+        file_path=blob_url,
         file_type=file_type,
         raw_text=raw_text,
     )
@@ -158,13 +162,11 @@ async def apply_to_vacancy(
         db.refresh(application)
     except IntegrityError:
         db.rollback()
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        await run_in_threadpool(blob_storage.delete, blob_url)
         raise HTTPException(status_code=409, detail="Ya te has postulado a esta vacante.")
     except Exception:
         db.rollback()
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        await run_in_threadpool(blob_storage.delete, blob_url)
         raise
 
     return application
@@ -256,14 +258,14 @@ def update_application_status(
     return application
 
 
-@router.get("/{vacancy_id}/{application_id}/resume", response_class=FileResponse)
+@router.get("/{vacancy_id}/{application_id}/resume")
 def download_application_resume(
     vacancy_id: str,
     application_id: str,
     db: SessionDep,
     current_user: CurrentUser,
-) -> FileResponse:
-    """Entrega el CV original solo al candidato propietario o al reclutador de la vacante."""
+) -> RedirectResponse:
+    """Redirige al CV original en Vercel Blob. Solo accesible por el candidato o el reclutador."""
     application = (
         db.query(Application)
         .filter(Application.id == application_id, Application.vacancy_id == vacancy_id)
@@ -276,14 +278,10 @@ def download_application_resume(
     owns_vacancy = str(vacancy.recruiter_id) == str(current_user.id)
     if not (owns_application or owns_vacancy):
         raise HTTPException(status_code=403, detail="No tienes acceso a este currículum.")
-    file_path = application.resume.file_path
-    if not os.path.isfile(file_path):
+    blob_url = application.resume.file_path
+    if not blob_url:
         raise HTTPException(status_code=404, detail="El archivo original ya no está disponible.")
-    return FileResponse(
-        path=file_path,
-        media_type=DOWNLOAD_MEDIA_TYPES[application.resume.file_type],
-        filename=f"curriculum-{application.candidate_id}.{application.resume.file_type}",
-    )
+    return RedirectResponse(url=blob_url, status_code=302)
 
 
 # ── GET /applications/my — Candidato: ver mis postulaciones ──────────────────
