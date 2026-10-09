@@ -1,0 +1,6 @@
+uploads/
+tests/
+alembic/
+test_cv.txt
+test_minimal.pdf
+requirements-dev.txt
