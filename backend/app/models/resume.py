@@ -15,6 +15,7 @@ class Resume(Base):
     raw_text = Column(Text, nullable=False)
     extracted_profile = Column(JSONB, nullable=True)
     profile_extracted_at = Column(DateTime(timezone=True), nullable=True)
+    harvard_cv = Column(JSONB, nullable=True)
     uploaded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     candidate = relationship("User", backref="resumes")

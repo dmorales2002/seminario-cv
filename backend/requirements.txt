@@ -18,3 +18,6 @@ pdfplumber
 python-docx
 # Fase 4 - LLM provider (Responses API + Structured Outputs)
 openai>=2.0.0,<3.0.0
+# Fase 5 - OCR (PDFs escaneados) y generación de PDF Harvard
+pymupdf>=1.24.0
+reportlab>=4.0.0

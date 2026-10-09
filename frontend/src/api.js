@@ -56,4 +56,22 @@ export const api = {
     link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.click()
     setTimeout(() => URL.revokeObjectURL(url), 60000)
   },
+  async downloadHarvardResume(vacancyId, applicationId) {
+    const token = localStorage.getItem('expediente_token')
+    const response = await fetch(`${API_URL}/applications/${vacancyId}/${applicationId}/resume/harvard`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!response.ok) {
+      let detail = 'No fue posible descargar el CV Harvard.'
+      try { detail = (await response.json()).detail || detail } catch { /* empty */ }
+      throw new ApiError(detail, response.status)
+    }
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `CV_Harvard_${applicationId.slice(0, 8).toUpperCase()}.pdf`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  },
 }

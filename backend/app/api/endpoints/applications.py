@@ -5,7 +5,7 @@ archivo original y registra la postulación para su posterior análisis.
 import uuid
 from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +16,7 @@ from app.models.application import Application, ApplicationStatus
 from app.models.user import UserRole
 from app.schemas.application import ApplicationOut, ApplicationWithCandidateOut, ApplicationStatusUpdate
 from app.services.extractor import extract_text
+from app.services.ocr_vision import extract_text_with_ocr
 from app.services import blob_storage
 from app.core.config import settings
 
@@ -108,8 +109,7 @@ async def apply_to_vacancy(
     file_bytes = await cv_file.read()
     validate_cv_content(file_bytes, file_type)
 
-    # Validar el documento antes de persistir la postulación. De este modo un
-    # archivo corrupto o sin texto seleccionable produce una respuesta útil.
+    # Validar el documento antes de persistir la postulación.
     try:
         raw_text = await run_in_threadpool(extract_text, file_bytes, file_type)
     except Exception as exc:
@@ -117,11 +117,41 @@ async def apply_to_vacancy(
             status_code=422,
             detail="No se pudo leer el documento. Verifica que sea un PDF o DOCX válido.",
         ) from exc
+
+    # Si el PDF no tiene texto seleccionable (ej. escaneado con CamScanner),
+    # usar OCR via OpenAI Vision como fallback.
+    if not raw_text.strip() and file_type == "pdf":
+        if not settings.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=422,
+                detail="El documento no contiene texto seleccionable y el OCR no está configurado.",
+            )
+        try:
+            raw_text = await run_in_threadpool(
+                extract_text_with_ocr, file_bytes, settings.OPENAI_API_KEY, settings.OPENAI_MODEL
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="No se pudo extraer texto del documento escaneado.",
+            ) from exc
+
     if not raw_text.strip():
         raise HTTPException(
             status_code=422,
-            detail="El documento no contiene texto seleccionable.",
+            detail="El documento no contiene texto legible.",
         )
+
+    # Convertir al formato Harvard usando el LLM (best-effort: no bloquea la postulación).
+    harvard_cv_data = None
+    if settings.OPENAI_API_KEY:
+        try:
+            from app.services.llm_client import OpenAIAnalysisClient
+            llm = OpenAIAnalysisClient()
+            harvard_cv = await run_in_threadpool(llm.convert_to_harvard_format, raw_text)
+            harvard_cv_data = harvard_cv.model_dump(mode="json")
+        except Exception:
+            pass  # El formato Harvard es opcional; no bloquea la postulación
 
     # 6. Subir archivo a Vercel Blob con nombre único
     file_uuid = str(uuid.uuid4())
@@ -136,12 +166,13 @@ async def apply_to_vacancy(
             detail="No se pudo almacenar el archivo. Intenta de nuevo.",
         ) from exc
 
-    # 7. Crear registro en `resumes` con el texto ya validado
+    # 7. Crear registro en `resumes` con el texto y el CV Harvard
     resume = Resume(
         candidate_id=current_user.id,
         file_path=blob_url,
         file_type=file_type,
         raw_text=raw_text,
+        harvard_cv=harvard_cv_data,
     )
     try:
         db.add(resume)
@@ -282,6 +313,53 @@ def download_application_resume(
     if not blob_url:
         raise HTTPException(status_code=404, detail="El archivo original ya no está disponible.")
     return RedirectResponse(url=blob_url, status_code=302)
+
+
+# ── GET /applications/{vacancy_id}/{application_id}/resume/harvard ───────────
+@router.get("/{vacancy_id}/{application_id}/resume/harvard")
+def download_harvard_resume(
+    vacancy_id: str,
+    application_id: str,
+    db: SessionDep,
+    current_user: CurrentUser,
+) -> Response:
+    """
+    Genera y descarga el CV en formato Harvard como PDF.
+    Accesible por el propio candidato o el reclutador de la vacante.
+    """
+    application = (
+        db.query(Application)
+        .filter(Application.id == application_id, Application.vacancy_id == vacancy_id)
+        .first()
+    )
+    if not application:
+        raise HTTPException(status_code=404, detail="Postulación no encontrada.")
+
+    vacancy = _get_vacancy_or_404(vacancy_id, db)
+    owns_application = str(application.candidate_id) == str(current_user.id)
+    owns_vacancy = str(vacancy.recruiter_id) == str(current_user.id)
+    if not (owns_application or owns_vacancy):
+        raise HTTPException(status_code=403, detail="No tienes acceso a este currículum.")
+
+    resume = application.resume
+    if not resume or not resume.harvard_cv:
+        raise HTTPException(
+            status_code=404,
+            detail="El CV en formato Harvard no está disponible para esta postulación.",
+        )
+
+    from app.schemas.resume import HarvardCV
+    from app.services.pdf_generator import generate_harvard_pdf
+
+    harvard_cv = HarvardCV.model_validate(resume.harvard_cv)
+    pdf_bytes = generate_harvard_pdf(harvard_cv)
+
+    safe_name = f"CV_Harvard_{application_id[:8].upper()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
 
 
 # ── GET /applications/my — Candidato: ver mis postulaciones ──────────────────
