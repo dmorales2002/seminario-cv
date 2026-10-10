@@ -501,7 +501,7 @@ function CandidateVacancies({applicationsOnly = false}) {
             const [v, a] = await Promise.all([api.vacancies(), api.myApplications()]);
             setVacancies(v);
             setApplications(a);
-            setSelected(s => v.find(x => x.id === s?.id) || v[0] || null)
+            setSelected(s => v.find(x => x.id === s?.id) || null)
         } catch (e) {
             setError(e.message)
         }
@@ -538,45 +538,55 @@ function CandidateVacancies({applicationsOnly = false}) {
             setDownloadingId(null)
         }
     }
-    if (applicationsOnly) return <Shell active="applications">
-        <div className="heading-row">
-            <div><span className="eyebrow">SEGUIMIENTO</span><h1>Mis postulaciones</h1><p>El estado siempre refleja una
-                decisión de una persona.</p></div>
+    if (applicationsOnly) {
+        const activeApps = applications.filter(a => a.status !== 'REJECTED')
+        const rejectedApps = applications.filter(a => a.status === 'REJECTED')
+        const AppTable = ({rows}) => <div className="table-card">
+            <table>
+                <thead><tr><th>Vacante</th><th>Fecha</th><th>Estado</th><th>CV Harvard</th></tr></thead>
+                <tbody>{rows.map(a => {
+                    const v = vacancies.find(x => x.id === a.vacancy_id)
+                    return <tr key={a.id}>
+                        <td><strong>{v?.title || 'Vacante'}</strong></td>
+                        <td>{formatDate(a.applied_at)}</td>
+                        <td><Badge status={a.status}/></td>
+                        <td><button className="button small" disabled={downloadingId === a.id}
+                            onClick={() => downloadHarvard(a.vacancy_id, a.id)}>
+                            {downloadingId === a.id ? 'Generando…' : 'Descargar PDF'}
+                        </button></td>
+                    </tr>
+                })}</tbody>
+            </table>
         </div>
-        <Alert>{error}</Alert>{applications.length ? <div className="table-card">
-        <table>
-            <thead>
-            <tr>
-                <th>Vacante</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>CV Harvard</th>
-            </tr>
-            </thead>
-            <tbody>{applications.map(a => {
-                const v = vacancies.find(x => x.id === a.vacancy_id);
-                return <tr key={a.id}>
-                    <td><strong>{v?.title || 'Vacante'}</strong></td>
-                    <td>{formatDate(a.applied_at)}</td>
-                    <td><Badge status={a.status}/></td>
-                    <td><button
-                        className="button small"
-                        disabled={downloadingId === a.id}
-                        onClick={() => downloadHarvard(a.vacancy_id, a.id)}
-                    >{downloadingId === a.id ? 'Generando…' : 'Descargar PDF'}</button></td>
-                </tr>
-            })}</tbody>
-        </table>
-    </div> : <Empty title="No tiene postulaciones" text="Explore las vacantes activas y postúlese con su currículum."/>}
-    </Shell>
+        return <Shell active="applications">
+            <div className="heading-row">
+                <div><span className="eyebrow">SEGUIMIENTO</span><h1>Mis postulaciones</h1>
+                    <p>El estado siempre refleja una decisión de una persona.</p></div>
+            </div>
+            <Alert>{error}</Alert>
+            {!applications.length
+                ? <Empty title="No tiene postulaciones" text="Explore las vacantes activas y postúlese con su currículum."/>
+                : <>
+                    <h2 className="section-heading">En proceso</h2>
+                    {activeApps.length
+                        ? <AppTable rows={activeApps}/>
+                        : <p className="section-empty">No tiene postulaciones activas en este momento.</p>}
+                    {rejectedApps.length > 0 && <>
+                        <h2 className="section-heading muted">Descartadas</h2>
+                        <AppTable rows={rejectedApps}/>
+                    </>}
+                </>}
+        </Shell>
+    }
+    const visibleVacancies = vacancies.filter(v => applied(v.id)?.status !== 'REJECTED')
     return <Shell active="vacancies">
         <div className="heading-row">
-            <div><span className="eyebrow">OPORTUNIDADES</span><h1>Vacantes activas</h1><p>{vacancies.length} plazas
+            <div><span className="eyebrow">OPORTUNIDADES</span><h1>Vacantes activas</h1><p>{visibleVacancies.length} plazas
                 disponibles en la plataforma</p></div>
         </div>
         <Alert>{error}</Alert>
         <div className="jobs-layout">
-            <div className="jobs-list">{vacancies.map(v => <button key={v.id}
+            <div className="jobs-list">{visibleVacancies.map(v => <button key={v.id}
                                                                    className={`job-card ${selected?.id === v.id ? 'selected' : ''}`}
                                                                    onClick={() => setSelected(v)}>
                 <div><h2>{v.title}</h2><p>{v.description}</p></div>
