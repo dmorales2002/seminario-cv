@@ -21,13 +21,16 @@ def extract_text_with_ocr(file_bytes: bytes, api_key: str, model: str) -> str:
     except ImportError as exc:
         raise RuntimeError("La dependencia 'openai' no está instalada.") from exc
 
-    client = OpenAI(api_key=api_key, timeout=60.0)
+    client = OpenAI(api_key=api_key, timeout=45.0)
     doc = fitz.open(stream=io.BytesIO(file_bytes), filetype="pdf")
     all_text: list[str] = []
 
-    for page in doc:
-        # Zoom 2× para mejor calidad de OCR
-        mat = fitz.Matrix(2.0, 2.0)
+    # Limit to first 4 pages to stay within serverless timeout
+    pages_to_process = list(doc)[:4]
+
+    for page in pages_to_process:
+        # Zoom 1.5× balances quality vs image size / API latency
+        mat = fitz.Matrix(1.5, 1.5)
         pix = page.get_pixmap(matrix=mat)
         png_bytes = pix.tobytes("png")
         b64 = base64.b64encode(png_bytes).decode()
