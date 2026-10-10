@@ -47,10 +47,12 @@ def invalidate_analyses(db: Session, vacancy_id) -> None:
 def analyze_application(db: Session, application: Application, criteria: VacancyCriteria, engine: AffinityEngine) -> None:
     try:
         resume = application.resume
+        # Prefer Harvard-formatted text (clean, structured) over raw OCR text when available.
+        analysis_text = resume.raw_text_harvard or resume.raw_text
         if resume.extracted_profile:
             profile = CandidateProfile.model_validate(resume.extracted_profile)
         else:
-            profile = engine.extract_profile(resume.raw_text)
+            profile = engine.extract_profile(analysis_text)
             resume.extracted_profile = profile.model_dump(mode="json")
             resume.profile_extracted_at = datetime.now(timezone.utc)
 

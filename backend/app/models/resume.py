@@ -13,6 +13,7 @@ class Resume(Base):
     file_path = Column(String, nullable=False)
     file_type = Column(String, nullable=False)
     raw_text = Column(Text, nullable=False)
+    raw_text_harvard = Column(Text, nullable=True)
     extracted_profile = Column(JSONB, nullable=True)
     profile_extracted_at = Column(DateTime(timezone=True), nullable=True)
     harvard_cv = Column(JSONB, nullable=True)

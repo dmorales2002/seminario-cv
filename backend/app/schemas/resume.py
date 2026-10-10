@@ -31,3 +31,15 @@ class HarvardCV(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     contact: str = Field(max_length=400, description="Email, teléfono y/o dirección separados por ' | '")
     sections: list[HarvardSection] = Field(min_length=1, max_length=15)
+
+    def to_plain_text(self) -> str:
+        """Convierte el CV Harvard estructurado a texto plano legible para el LLM."""
+        lines = [self.name]
+        if self.contact:
+            lines.append(self.contact)
+        lines.append("")
+        for section in self.sections:
+            lines.append(section.heading.upper())
+            lines.append(section.content)
+            lines.append("")
+        return "\n".join(lines).strip()

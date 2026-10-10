@@ -144,12 +144,15 @@ async def apply_to_vacancy(
 
     # Convertir al formato Harvard usando el LLM (best-effort: no bloquea la postulación).
     harvard_cv_data = None
+    raw_text_harvard = None
     if settings.OPENAI_API_KEY:
         try:
             from app.services.llm_client import OpenAIAnalysisClient
+            from app.schemas.resume import HarvardCV
             llm = OpenAIAnalysisClient()
             harvard_cv = await run_in_threadpool(llm.convert_to_harvard_format, raw_text)
             harvard_cv_data = harvard_cv.model_dump(mode="json")
+            raw_text_harvard = harvard_cv.to_plain_text()
         except Exception:
             pass  # El formato Harvard es opcional; no bloquea la postulación
 
@@ -172,6 +175,7 @@ async def apply_to_vacancy(
         file_path=blob_url,
         file_type=file_type,
         raw_text=raw_text,
+        raw_text_harvard=raw_text_harvard,
         harvard_cv=harvard_cv_data,
     )
     try:
