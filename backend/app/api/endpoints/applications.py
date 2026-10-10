@@ -133,7 +133,7 @@ async def apply_to_vacancy(
         except Exception as exc:
             raise HTTPException(
                 status_code=422,
-                detail=f"No se pudo extraer texto del documento escaneado. ({type(exc).__name__}: {exc})",
+                detail="No se pudo extraer texto del documento escaneado.",
             ) from exc
 
     if not raw_text.strip():
