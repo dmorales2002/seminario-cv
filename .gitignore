@@ -1,6 +1,7 @@
 backend/.env
 backend/venv/
 backend/uploads/*
+backend/.DS_Store
 !backend/uploads/.gitkeep
 __pycache__/
 *.py[cod]
@@ -10,3 +11,7 @@ frontend/dist/
 frontend/.env
 frontend/*-screenshot.png
 .env
+.env*.local
+.vercel/
+.idea/
+.DS_Store

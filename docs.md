@@ -56,3 +56,7 @@ Los archivos que sí se commitearán y son seguros:
 - backend/api/index.py
 - backend/.vercelignore
 - frontend/vercel.json
+
+# chat con ia
+
+claude --resume 3b5b7e8a-0f0f-4f23-a66d-5b2651084da1
