@@ -91,6 +91,8 @@ class AnalysisRunOut(BaseModel):
     vacancy_id: UUID
     analyzed: int
     failed: int
+    pending: int = 0
+    complete: bool = True
     results: list[AnalysisResultOut]
 
 

@@ -87,7 +87,7 @@ const statusLabel = {
 function LoginPage({register = false}) {
     const {user, login} = useAuth();
     const navigate = useNavigate()
-    const [form, setForm] = useState({full_name: '', email: '', password: '', role: 'CANDIDATE'})
+    const [form, setForm] = useState({full_name: '', email: '', password: '', role: 'CANDIDATE', invite_code: ''})
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false)
     if (user) return <Navigate to={user.role === 'RECRUITER' ? '/recruiter' : '/candidate'} replace/>
@@ -96,7 +96,7 @@ function LoginPage({register = false}) {
         setBusy(true);
         setError('')
         try {
-            if (register) await api.register(form)
+            if (register) await api.register({...form, invite_code: form.role === 'RECRUITER' ? form.invite_code : undefined})
             const current = await login(form.email, form.password)
             navigate(current.role === 'RECRUITER' ? '/recruiter' : '/candidate')
         } catch (err) {
@@ -141,6 +141,8 @@ function LoginPage({register = false}) {
                                                                                                          })}/> Reclutador</label>
                         </div>
                     </fieldset>}
+                    {register && form.role === 'RECRUITER' && <label>Código de invitación<input required value={form.invite_code}
+                                                    onChange={e => setForm({...form, invite_code: e.target.value})}/></label>}
                     <button className="button primary full"
                             disabled={busy}>{busy ? 'Procesando…' : register ? 'Crear cuenta' : 'Ingresar'}</button>
                 </form>
@@ -290,7 +292,13 @@ function VacancyWorkspace() {
         setBusy('analysis');
         setError('');
         try {
-            await api.runAnalysis(id);
+            // El servidor analiza por tiempo y devuelve cuántas postulaciones faltan; se repite mientras haya avance.
+            let remaining = Infinity
+            for (let i = 0; i < 50; i++) {
+                const run = await api.runAnalysis(id)
+                if (run.pending === 0 || run.pending >= remaining) break
+                remaining = run.pending
+            }
             await load()
         } catch (e) {
             setError(e.message)

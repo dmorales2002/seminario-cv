@@ -1,5 +1,5 @@
 import React from 'react'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App, { EvidenceCard } from '../App'
@@ -19,7 +19,7 @@ describe('autenticación', () => {
   it('muestra el acceso con el principio de decisión humana', () => {
     render(<MemoryRouter initialEntries={['/login']}><App /></MemoryRouter>)
     expect(screen.getByRole('heading', { name: /Talento visible/i })).toBeInTheDocument()
-    expect(screen.getByText(/Usted conserva la decisión/i)).toBeInTheDocument()
+    expect(screen.getByText(/Decisiones humanas/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ingresar' })).toBeInTheDocument()
   })
 
@@ -27,6 +27,13 @@ describe('autenticación', () => {
     render(<MemoryRouter initialEntries={['/register']}><App /></MemoryRouter>)
     expect(screen.getByRole('radio', { name: 'Candidato' })).toBeChecked()
     expect(screen.getByRole('radio', { name: 'Reclutador' })).toBeInTheDocument()
+  })
+
+  it('pide un código de invitación solo para el rol de reclutador', async () => {
+    render(<MemoryRouter initialEntries={['/register']}><App /></MemoryRouter>)
+    expect(screen.queryByLabelText(/Código de invitación/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: 'Reclutador' }))
+    expect(screen.getByLabelText(/Código de invitación/i)).toBeInTheDocument()
   })
 })
 

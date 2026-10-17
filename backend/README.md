@@ -3,7 +3,7 @@
 ## Configuración
 
 1. Copiar `.env.example` a `.env`.
-2. Definir una clave segura en `SECRET_KEY` y configurar `OPENAI_API_KEY`.
+2. Definir en `.env` una `SECRET_KEY` aleatoria de al menos 32 caracteres (es obligatoria), `OPENAI_API_KEY` y, si se van a registrar reclutadores, `RECRUITER_INVITE_CODE`. Sin ese código solo se registran candidatos.
 3. Iniciar PostgreSQL desde la raíz: `docker compose up -d`.
 4. Aplicar migraciones: `alembic upgrade head`.
 5. Iniciar la API: `uvicorn app.main:app --reload`.
@@ -11,6 +11,13 @@
 El modelo predeterminado es el snapshot `gpt-4o-mini-2024-07-18`. Puede cambiarse con
 `OPENAI_MODEL`. Las solicitudes al proveedor usan Structured Outputs, temperatura cero,
 reintentos acotados y `store=False`.
+
+## Almacenamiento y análisis por lotes
+
+Los currículums originales se guardan en la base de datos y solo se entregan por la API autenticada al
+candidato que los cargó y al reclutador de la vacante; no existe un enlace público. `POST .../run`
+analiza por tiempo (`ANALYSIS_TIME_BUDGET_SECONDS`, 40 s por solicitud) y devuelve `pending` y `complete`;
+el cliente repite la solicitud hasta que no queden postulaciones pendientes.
 
 ## Flujo de análisis
 

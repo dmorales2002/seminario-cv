@@ -2,6 +2,7 @@
 Endpoint de postulación: valida y extrae CVs (PDF/DOCX), persiste el
 archivo original y registra la postulación para su posterior análisis.
 """
+import logging
 import uuid
 from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
@@ -17,9 +18,9 @@ from app.models.user import UserRole
 from app.schemas.application import ApplicationOut, ApplicationWithCandidateOut, ApplicationStatusUpdate
 from app.services.extractor import extract_text
 from app.services.ocr_vision import extract_text_with_ocr
-from app.services import blob_storage
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ── Configuración ──────────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ async def apply_to_vacancy(
     
     - Valida que el usuario sea CANDIDATE.
     - Valida formato y tamaño del archivo.
-    - Guarda el archivo en /uploads.
+    - Guarda el archivo original en la base de datos.
     - Comprueba que el documento sea legible y contenga texto seleccionable.
     - Crea la fila en `resumes` y `applications` (status=PENDING, score=None).
     - Responde HTTP 202 cuando la postulación quedó registrada.
@@ -154,25 +155,17 @@ async def apply_to_vacancy(
             harvard_cv_data = harvard_cv.model_dump(mode="json")
             raw_text_harvard = harvard_cv.to_plain_text()
         except Exception:
-            pass  # El formato Harvard es opcional; no bloquea la postulación
+            # El formato Harvard es opcional y no bloquea la postulación, pero el fallo debe quedar registrado.
+            logger.warning("Falló la conversión al formato Harvard; se usará el texto extraído.", exc_info=True)
 
-    # 6. Subir archivo a Vercel Blob con nombre único
-    file_uuid = str(uuid.uuid4())
-    safe_filename = f"{file_uuid}.{file_type}"
-    try:
-        blob_url = await run_in_threadpool(
-            blob_storage.upload, safe_filename, file_bytes, cv_file.content_type
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="No se pudo almacenar el archivo. Intenta de nuevo.",
-        ) from exc
+    # 6. El archivo original se guarda en la base de datos: solo se entrega mediante la API autenticada.
+    stored_name = f"{uuid.uuid4()}.{file_type}"
 
     # 7. Crear registro en `resumes` con el texto y el CV Harvard
     resume = Resume(
         candidate_id=current_user.id,
-        file_path=blob_url,
+        file_path=f"db:{stored_name}",
+        file_data=file_bytes,
         file_type=file_type,
         raw_text=raw_text,
         raw_text_harvard=raw_text_harvard,
@@ -197,11 +190,9 @@ async def apply_to_vacancy(
         db.refresh(application)
     except IntegrityError:
         db.rollback()
-        await run_in_threadpool(blob_storage.delete, blob_url)
         raise HTTPException(status_code=409, detail="Ya te has postulado a esta vacante.")
     except Exception:
         db.rollback()
-        await run_in_threadpool(blob_storage.delete, blob_url)
         raise
 
     return application
@@ -299,8 +290,8 @@ def download_application_resume(
     application_id: str,
     db: SessionDep,
     current_user: CurrentUser,
-) -> RedirectResponse:
-    """Redirige al CV original en Vercel Blob. Solo accesible por el candidato o el reclutador."""
+) -> Response:
+    """Entrega el CV original. Solo accesible por el candidato o por el reclutador de la vacante."""
     application = (
         db.query(Application)
         .filter(Application.id == application_id, Application.vacancy_id == vacancy_id)
@@ -313,10 +304,21 @@ def download_application_resume(
     owns_vacancy = str(vacancy.recruiter_id) == str(current_user.id)
     if not (owns_application or owns_vacancy):
         raise HTTPException(status_code=403, detail="No tienes acceso a este currículum.")
-    blob_url = application.resume.file_path
-    if not blob_url:
-        raise HTTPException(status_code=404, detail="El archivo original ya no está disponible.")
-    return RedirectResponse(url=blob_url, status_code=302)
+    resume = application.resume
+    if resume.file_data:
+        return Response(
+            content=bytes(resume.file_data),
+            media_type=DOWNLOAD_MEDIA_TYPES.get(resume.file_type, "application/octet-stream"),
+            headers={
+                "Content-Disposition": f'inline; filename="curriculum.{resume.file_type}"',
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    if resume.file_path and resume.file_path.startswith("http"):
+        # Postulaciones anteriores al cambio de almacenamiento conservan su enlace original.
+        return RedirectResponse(url=resume.file_path, status_code=302)
+    raise HTTPException(status_code=404, detail="El archivo original ya no está disponible.")
 
 
 # ── GET /applications/{vacancy_id}/{application_id}/resume/harvard ───────────

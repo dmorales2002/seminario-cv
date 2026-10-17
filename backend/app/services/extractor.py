@@ -6,13 +6,16 @@ import io
 import pdfplumber
 import docx
 
+PDF_X_TOLERANCE = 1.5
+
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extrae el texto de un PDF usando pdfplumber (maneja columnas y tablas mejor que PyPDF2)."""
     text_parts = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            page_text = page.extract_text()
+            # x_tolerance menor que el predeterminado (3) conserva los espacios en PDF con texto muy compacto
+            page_text = page.extract_text(x_tolerance=PDF_X_TOLERANCE)
             if page_text:
                 text_parts.append(page_text)
     return "\n".join(text_parts).strip()
