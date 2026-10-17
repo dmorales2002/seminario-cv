@@ -50,7 +50,11 @@ def login(db: SessionDep, form_data: OAuth2PasswordRequestForm = Depends()):
     )
     return {"access_token": access_token, "token_type": "bearer"}  # nosec B105
 
-@router.post("/password-recovery")
+@router.post("/password-recovery", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 def recover_password(email: str):
-    # Dummy endpoint for password recovery as per requirements
-    return {"msg": "If the email is registered, a recovery link will be sent."}
+    # La recuperación de contraseña no está implementada: se responde con claridad en lugar de
+    # simular que se envió un enlace.
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="La recuperación de contraseña no está implementada.",
+    )
