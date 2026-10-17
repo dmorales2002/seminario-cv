@@ -1,8 +1,10 @@
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import CurrentUser, SessionDep
+from app.core.config import settings
 from app.models.application import Application
 from app.models.user import UserRole
 from app.models.vacancy import Vacancy
@@ -109,10 +111,19 @@ def run_analysis(
         db.commit()
 
     applications = db.query(Application).filter(Application.vacancy_id == vacancy.id).all()
+    # Primero lo que falta por analizar: así cada solicitud avanza aunque el lote no termine.
+    order = {"PENDING": 0, "PROCESSING": 0, "FAILED": 1, "COMPLETED": 2}
+    applications.sort(key=lambda item: order.get(item.analysis_status, 0))
+    started = time.monotonic()
     results = []
     analyzed = 0
     failed = 0
+    visited = 0
     for application in applications:
+        # El tiempo de una función es limitado: se procesa por tiempo y el cliente repite hasta terminar.
+        if visited > 0 and time.monotonic() - started >= settings.ANALYSIS_TIME_BUDGET_SECONDS:
+            break
+        visited += 1
         try:
             analyze_application(db, application, criteria, engine)
             analyzed += 1
@@ -126,9 +137,12 @@ def run_analysis(
             analyzed_at=current.analyzed_at,
             error=current.analysis_error if current.analysis_status == "FAILED" else None,
         ))
+    pending = sum(1 for item in applications[visited:] if item.analysis_status != "COMPLETED")
     return AnalysisRunOut(
         vacancy_id=vacancy.id,
         analyzed=analyzed,
         failed=failed,
+        pending=pending,
+        complete=pending == 0,
         results=results,
     )

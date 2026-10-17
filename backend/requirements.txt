@@ -8,7 +8,7 @@ pydantic-settings==2.15.0
 pydantic[email]
 passlib[bcrypt]
 bcrypt<4.0.0
-python-jose[cryptography]
+PyJWT>=2.8,<3.0
 python-multipart
 python-dotenv
 # Vercel Blob storage

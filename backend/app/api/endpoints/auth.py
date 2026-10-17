@@ -1,10 +1,11 @@
+import secrets
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from app.api.deps import SessionDep
 from app.core import security
 from app.core.config import settings
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.user import UserCreate, UserOut
 from app.schemas.token import Token
 
@@ -12,6 +13,14 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserOut)
 def register(*, db: SessionDep, user_in: UserCreate):
+    if user_in.role == UserRole.RECRUITER:
+        expected = settings.RECRUITER_INVITE_CODE
+        provided = user_in.invite_code or ""
+        if not expected or not secrets.compare_digest(provided, expected):
+            raise HTTPException(
+                status_code=403,
+                detail="El registro como reclutador requiere un código de invitación válido.",
+            )
     user = db.query(User).filter(User.email == user_in.email).first()
     if user:
         raise HTTPException(
@@ -39,7 +48,7 @@ def login(db: SessionDep, form_data: OAuth2PasswordRequestForm = Depends()):
     access_token = security.create_access_token(
         data={"sub": str(user.id)}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer"}  # nosec B105
 
 @router.post("/password-recovery")
 def recover_password(email: str):

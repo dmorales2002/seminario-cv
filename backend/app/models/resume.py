@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.db.base import Base
@@ -11,6 +11,7 @@ class Resume(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     file_path = Column(String, nullable=False)
+    file_data = Column(LargeBinary, nullable=True)  # archivo original; nunca se expone con un enlace público
     file_type = Column(String, nullable=False)
     raw_text = Column(Text, nullable=False)
     raw_text_harvard = Column(Text, nullable=True)

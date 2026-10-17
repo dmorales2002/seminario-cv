@@ -1,3 +1,5 @@
+import os as _os
+_os.environ.setdefault("SECRET_KEY", "clave-solo-para-pruebas-" + "x" * 32)
 import unittest
 from datetime import datetime, timezone
 

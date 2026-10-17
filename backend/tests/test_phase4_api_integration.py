@@ -1,3 +1,5 @@
+import os as _os
+_os.environ.setdefault("SECRET_KEY", "clave-solo-para-pruebas-" + "x" * 32)
 import io
 import os
 import unittest
@@ -7,6 +9,7 @@ import docx
 from fastapi.testclient import TestClient
 
 from app.api.endpoints.analysis import get_analysis_engine
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.application import Application
@@ -42,6 +45,8 @@ class FakeProvider:
 class Phase4ApiIntegrationTests(unittest.TestCase):
     def setUp(self):
         app.dependency_overrides[get_analysis_engine] = lambda: AffinityEngine(FakeProvider())
+        self._saved = (settings.RECRUITER_INVITE_CODE, settings.ANALYSIS_TIME_BUDGET_SECONDS)
+        settings.RECRUITER_INVITE_CODE = "codigo-de-prueba"
         self.client = TestClient(app)
         self.created_user_ids = []
         self.created_vacancy_id = None
@@ -49,6 +54,7 @@ class Phase4ApiIntegrationTests(unittest.TestCase):
 
     def tearDown(self):
         app.dependency_overrides.clear()
+        settings.RECRUITER_INVITE_CODE, settings.ANALYSIS_TIME_BUDGET_SECONDS = self._saved
         db = SessionLocal()
         try:
             if self.created_application_id:
@@ -58,11 +64,15 @@ class Phase4ApiIntegrationTests(unittest.TestCase):
                     db.delete(application)
                     db.flush()
                     if resume:
-                        file_path = resume.file_path
                         db.delete(resume)
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
             if self.created_vacancy_id:
+                for application in db.query(Application).filter(Application.vacancy_id == self.created_vacancy_id).all():
+                    resume = db.get(Resume, application.resume_id)
+                    db.delete(application)
+                    db.flush()
+                    if resume:
+                        db.delete(resume)
+                db.flush()
                 vacancy = db.get(Vacancy, self.created_vacancy_id)
                 if vacancy:
                     db.delete(vacancy)
@@ -82,6 +92,7 @@ class Phase4ApiIntegrationTests(unittest.TestCase):
             "email": email,
             "password": password,
             "role": role,
+            "invite_code": "codigo-de-prueba" if role == "RECRUITER" else None,
         })
         self.assertEqual(response.status_code, 200, response.text)
         self.created_user_ids.append(response.json()["id"])
@@ -121,6 +132,14 @@ class Phase4ApiIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(resume_response.status_code, 200, resume_response.text)
         self.assertIn("wordprocessingml.document", resume_response.headers["content-type"])
+        self.assertEqual(resume_response.content, buffer.getvalue())
+        self.assertEqual(resume_response.headers["cache-control"], "private, no-store")
+        stranger_headers = self._register_and_login("CANDIDATE")
+        forbidden = self.client.get(
+            f"/api/v1/applications/{self.created_vacancy_id}/{self.created_application_id}/resume",
+            headers=stranger_headers,
+        )
+        self.assertEqual(forbidden.status_code, 403)
 
         criteria = self.client.post(
             f"/api/v1/analysis/vacancies/{self.created_vacancy_id}/criteria",
@@ -167,6 +186,51 @@ class Phase4ApiIntegrationTests(unittest.TestCase):
         ).json()[0]
         self.assertIsNone(invalidated["ai_score"])
         self.assertEqual(invalidated["analysis_status"], "PENDING")
+
+    def test_recruiter_registration_requires_invite_code(self):
+        base = {"full_name": "Intruso", "email": f"phase4-{uuid.uuid4().hex}@example.com", "password": "SecurePass123!", "role": "RECRUITER"}
+        sin_codigo = self.client.post("/api/v1/auth/register", json=base)
+        self.assertEqual(sin_codigo.status_code, 403)
+        mal = self.client.post("/api/v1/auth/register", json={**base, "invite_code": "otro"})
+        self.assertEqual(mal.status_code, 403)
+        settings.RECRUITER_INVITE_CODE = None
+        deshabilitado = self.client.post("/api/v1/auth/register", json={**base, "invite_code": "codigo-de-prueba"})
+        self.assertEqual(deshabilitado.status_code, 403)
+
+    def test_api_rejects_weak_passwords(self):
+        for password in ("a", "corta1", "soloLetrasLargas", "123456789"):
+            response = self.client.post("/api/v1/auth/register", json={
+                "full_name": "Debil", "email": f"phase4-{uuid.uuid4().hex}@example.com", "password": password, "role": "CANDIDATE",
+            })
+            self.assertEqual(response.status_code, 422, password)
+
+    def test_analysis_runs_in_time_limited_batches(self):
+        recruiter_headers = self._register_and_login("RECRUITER")
+        vacancy_response = self.client.post("/api/v1/vacancies/", headers=recruiter_headers, json={
+            "title": "Backend Python", "description": "Construir servicios.", "requirements": "Python y FastAPI.",
+        })
+        self.created_vacancy_id = vacancy_response.json()["id"]
+        document = docx.Document()
+        document.add_paragraph("Desarrollé servicios con Python y FastAPI.")
+        buffer = io.BytesIO()
+        document.save(buffer)
+        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        for _ in range(3):
+            headers = self._register_and_login("CANDIDATE")
+            response = self.client.post(f"/api/v1/applications/{self.created_vacancy_id}", headers=headers,
+                                        files={"cv_file": ("cv.docx", buffer.getvalue(), mime)})
+            self.assertEqual(response.status_code, 202, response.text)
+        settings.ANALYSIS_TIME_BUDGET_SECONDS = 0
+        pendientes = []
+        for _ in range(5):
+            run = self.client.post(f"/api/v1/analysis/vacancies/{self.created_vacancy_id}/run", headers=recruiter_headers)
+            self.assertEqual(run.status_code, 200, run.text)
+            pendientes.append(run.json()["pending"])
+            if run.json()["complete"]:
+                break
+        self.assertEqual(pendientes, [2, 1, 0])
+        ranking = self.client.get(f"/api/v1/applications/{self.created_vacancy_id}", headers=recruiter_headers).json()
+        self.assertEqual([item["analysis_status"] for item in ranking], ["COMPLETED"] * 3)
 
 
 if __name__ == "__main__":
