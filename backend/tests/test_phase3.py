@@ -55,3 +55,17 @@ class CvValidationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NormalizeMatchesTests(unittest.TestCase):
+    def test_uncited_credit_becomes_no_evidence(self):
+        from app.services.llm_client import normalize_matches
+        data = {"matches": [
+            {"criterion_index": 0, "claim_index": None, "strength": 0.5, "rationale": "x"},
+            {"criterion_index": 1, "claim_index": 2, "strength": 0.0, "rationale": "y"},
+            {"criterion_index": 2, "claim_index": 1, "strength": 1.0, "rationale": "z"},
+        ]}
+        out = normalize_matches(data)["matches"]
+        self.assertEqual((out[0]["strength"], out[0]["claim_index"]), (0.0, None))
+        self.assertIsNone(out[1]["claim_index"])
+        self.assertEqual((out[2]["strength"], out[2]["claim_index"]), (1.0, 1))

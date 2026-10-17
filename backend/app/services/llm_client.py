@@ -74,6 +74,23 @@ Preserva toda la información relevante del CV.
 """.strip()
 
 
+MATCH_ATTEMPTS = 3
+
+
+def normalize_matches(data: dict) -> dict:
+    """Aplica la regla de evidencia sin descartar el análisis completo.
+
+    Una coincidencia con fuerza mayor que cero que no cita una afirmación no
+    puede puntuar (se trata como sin evidencia); una sin fuerza no cita ninguna.
+    """
+    for match in data.get("matches", []):
+        if match.get("strength", 0) > 0 and match.get("claim_index") is None:
+            match["strength"] = 0.0
+        if match.get("strength", 0) == 0:
+            match["claim_index"] = None
+    return data
+
+
 class OpenAIAnalysisClient:
     """OpenAI Responses API adapter with strict JSON Schema outputs."""
 
@@ -93,7 +110,7 @@ class OpenAIAnalysisClient:
             max_retries=settings.OPENAI_MAX_RETRIES,
         )
 
-    def _structured_response(self, instructions: str, content: str, schema: type[T]) -> T:
+    def _raw_response(self, instructions: str, content: str, schema: type[T]) -> str:
         try:
             response = self.client.responses.create(
                 model=self.model,
@@ -112,11 +129,14 @@ class OpenAIAnalysisClient:
             )
             if not response.output_text:
                 raise LLMProviderError("El proveedor no devolvió contenido analizable.")
-            return schema.model_validate_json(response.output_text)
-        except (LLMProviderError, ValidationError):
+            return response.output_text
+        except LLMProviderError:
             raise
         except Exception as exc:
             raise LLMProviderError("Falló la comunicación con el proveedor LLM.") from exc
+
+    def _structured_response(self, instructions: str, content: str, schema: type[T]) -> T:
+        return schema.model_validate_json(self._raw_response(instructions, content, schema))
 
     def extract_vacancy_criteria(self, title: str, description: str, requirements: str) -> VacancyCriteriaDraft:
         payload = json.dumps(
@@ -130,11 +150,17 @@ class OpenAIAnalysisClient:
         return self._structured_response(CANDIDATE_INSTRUCTIONS, bounded_text, CandidateProfile)
 
     def match(self, criteria: VacancyCriteria, profile: CandidateProfile) -> SemanticAssessment:
-        payload = json.dumps(
-            {"criteria": criteria.model_dump(mode="json"), "claims": profile.model_dump(mode="json")},
-            ensure_ascii=False,
-        )
-        return self._structured_response(MATCH_INSTRUCTIONS, payload, SemanticAssessment)
+        claims = [{"claim_index": i, **c} for i, c in enumerate(profile.model_dump(mode="json")["claims"])]
+        items = [{"criterion_index": i, **c} for i, c in enumerate(criteria.model_dump(mode="json")["criteria"])]
+        payload = json.dumps({"criteria": items, "claims": claims}, ensure_ascii=False)
+        last_error: Exception | None = None
+        for _ in range(MATCH_ATTEMPTS):
+            raw = self._raw_response(MATCH_INSTRUCTIONS, payload, SemanticAssessment)
+            try:
+                return SemanticAssessment.model_validate(normalize_matches(json.loads(raw)))
+            except (ValidationError, ValueError) as exc:
+                last_error = exc
+        raise LLMProviderError("El LLM no devolvió una evaluación coherente.") from last_error
 
     def convert_to_harvard_format(self, raw_text: str) -> "HarvardCV":
         """Convierte el texto crudo de un CV al formato Harvard estructurado."""
