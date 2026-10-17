@@ -67,5 +67,13 @@ class PdfSpacingTests(unittest.TestCase):
         self.assertEqual(text, "Administración de bases de datos")
 
 
+class PasswordRecoveryTests(unittest.TestCase):
+    def test_recovery_endpoint_is_honest_about_not_being_implemented(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        response = TestClient(app).post("/api/v1/auth/password-recovery", params={"email": "ana@example.com"})
+        self.assertEqual(response.status_code, 501)
+
+
 if __name__ == "__main__":
     unittest.main()
